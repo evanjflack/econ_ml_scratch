@@ -37,8 +37,8 @@ class DRLinear:
         :param y: outcomes
         :return:
         """
-        reg_zero_preds_t = self.model_zero.predict(X)
-        reg_one_preds_t = self.model_one.predict(X)
+        reg_zero_preds_t = self.model_y_zero.predict(X)
+        reg_one_preds_t = self.model_y_one.predict(X)
         reg_preds_t = reg_zero_preds_t * (1 - D) + reg_one_preds_t * D
         prop_preds = self.model_t.predict(X)
 
