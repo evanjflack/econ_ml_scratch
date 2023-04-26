@@ -6,7 +6,30 @@ from statsmodels.tools import add_constant
 
 
 class DRLinear:
-    """
+    """Validation test for CATE models. Estimates OLS of doubly-robust outcomes on CATE estimates, and tests whether
+    coefficient on CATE estimates are different than 0. Can oly be used for binary treatment.
+
+
+
+    Parameters
+    ----------
+    cate_model: estimator
+        The estimator for fitting the treatment effect to the features (e.g. DRlearner). Must have a predict method.
+
+    model_y_zero: estimator
+        The estimator for fitting the response variable to features for untreated units
+
+    model_y_one: estimator
+        The estimator for fitting the response variable to features for treated units
+
+    model_t: estimator
+        The estimator for fitting the treatment status to the features
+
+
+    References
+    ----------
+
+
     x = DRLinear(cate, zero, one, t)
     x_fitted = x.fit(X,Y,D,Z)
 
@@ -32,9 +55,16 @@ class DRLinear:
     ):
         """
 
-        :param X: covariate data
-        :param D: treatment assignment
-        :param y: outcomes
+        Parameters
+        ----------
+
+        X: (n x k array)
+            Covariates used to predict response/treatment
+        D: n x 1 vector
+            Treatment indicators
+        Y: vector, outcome
+
+
         :return:
         """
         reg_zero_preds_t = self.model_y_zero.predict(X)
