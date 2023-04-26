@@ -28,7 +28,7 @@ def auto_reg(X, y, *, groups=None, n_splits=5, split_type='auto', time_budget=60
     X = np.array(X)
     automl = AutoML(task='regression', time_budget=time_budget, early_stop=True,
                     eval_method='cv', n_splits=n_splits, split_type=split_type,
-                    metric='mse', verbose=verbose)
+                    metric='mse', verbose=verbose, estimator_list = ['lgbm'])
     inds = np.arange(X.shape[0])
     np.random.shuffle(inds)
     if groups is None:
