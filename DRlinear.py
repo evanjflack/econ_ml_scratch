@@ -119,4 +119,6 @@ class DRLinear:
 
         self.params = self.res.params
 
+        self.bse = self.res.bse
+
         return self
