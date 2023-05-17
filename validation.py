@@ -1,6 +1,67 @@
 import numpy as np
 from statsmodels.api import OLS
 from statsmodels.tools import add_constant
+from sklearn.model_selection import cross_val_predict, StratifiedKFold
+
+
+# Fits nuisance in train, predicts in validation
+def fit_nuisance_train(reg_outcome, reg_t, Xtrain, Dtrain, ytrain, Xval, Dval):
+
+    treatments = np.unique(D)
+    n = Xval.shape[0]
+    k = len(treatments)
+    reg_preds = np.zeros((n, k))
+    for i in treatments:
+        reg_outcome_fitted = reg_outcome().fit(Xtrain[Dtrain == i], ytrain[Dtrain == i])
+        reg_preds[:, i] = reg_outcome_fitted.predict(Xval)
+
+    reg_t_fitted = reg_t().fit(Xtrain, Dtrain)
+    prop_preds = reg_t_fitted.predict(Xval)
+
+    return reg_preds, prop_preds
+
+# CV nuisance predictions
+def fit_nuisance_cv(reg_outcome, reg_t, X, D, y, n_splits = 5, shuffle = True, random_state = 712):
+
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+    splits = list(cv.split(X, D))
+
+    tmts = np.unique(D)
+    n = X.shape[0]
+    k = len(tmts)
+    reg_preds = np.zeros((n, k))
+
+    for i in range(len(tmts)):
+        for train, test in splits:
+            reg_outcome_fitted = reg_outcome().fit(X.iloc[train][D[train] == tmts[i]], y[train][D[train] == tmts[i]])
+            reg_preds[test, i] = reg_outcome_fitted.predict(X.iloc[test])
+
+    prop_preds = cross_val_predict(reg_t(), X, D, cv=splits)
+
+    return reg_preds, prop_preds
+
+# Fits CATE in training, predicts in validation
+def fit_cate_train(reg_cate, dr_train, Ztrain, Zval):
+
+    reg_cate_fitted = reg_cate.fit(Ztrain, dr_train)
+    cate_preds = reg_cate_fitted.predict(Zval)
+
+    return cate_preds
+
+# CV prediction of CATEs
+def fit_cate_cv(reg_cate, dr, Z, D, shuffle = True, random_state = 712):
+
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+    splits = list(cv.split(Z, D))
+
+    n = X.shape[0]
+    cate_preds = np.zeros(n)
+
+    for train, test in splits:
+        reg_cate_fitted = reg_cate.fit(Z.iloc[train], dr[train])
+        cate_preds[test] = reg_cate_fitted.predict(Z.iloc[test])
+
+    return cate_preds
 
 
 def calculate_dr_outcomes(
@@ -92,6 +153,22 @@ class DRLinear:
         self.model_y_zero = model_y_zero
         self.model_y_one = model_y_one
         self.model_t = model_t
+
+
+    def fit(
+        self,
+        Xval,
+        Dval,
+        yval,
+        Xtrain = None,
+        Dtrain = None,
+        ytrain = None
+
+            if (Xtrain != None) & (Dtrain != None) & (ytrain != None):
+
+
+
+        ):
 
     def fit(
         self,
