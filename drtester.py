@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
+import scipy.stats as st
+from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from statsmodels.api import OLS
 from statsmodels.tools import add_constant
-from sklearn.model_selection import cross_val_predict, StratifiedKFold
+
 
 class DRtester:
 
@@ -47,6 +49,9 @@ class DRtester:
         self.reg_t = reg_t
         self.n_splits = n_splits
         self.dr_train = None
+        self.cate_preds_train = None
+        self.cate_preds_val = None
+        self.dr_val = None
 
     # Fits nusisance and CATE
     def fit_nuisance(
@@ -103,17 +108,17 @@ class DRtester:
         if self.fit_on_train:
             # Get DR outcomes in training sample
             reg_preds_train, prop_preds_train = self.fit_nuisance_cv(Xtrain, Dtrain, ytrain)
-            self.dr_train = self.calculate_dr_outcomes(Dtrain, ytrain, reg_preds_train, prop_preds_train)
+            self.dr_train = self.calculate_dr_outcomes(self.n_treat, Dtrain, ytrain, reg_preds_train, prop_preds_train)
 
             # Get DR outcomes in validation sample
             reg_preds_val, prop_preds_val = self.fit_nuisance_train(Xtrain, Dtrain, ytrain, Xval)
-            self.dr_val = self.calculate_dr_outcomes(Dval, yval, reg_preds_val, prop_preds_val)
+            self.dr_val = self.calculate_dr_outcomes(self.n_treat, Dval, yval, reg_preds_val, prop_preds_val)
 
             self.Dtrain = Dtrain
 
         else:
             reg_preds_val, prop_preds_val = self.fit_nuisance_cv(Xval, Dval, yval)
-            self.dr_val = self.calculate_dr_outcomes(Dval, yval, reg_preds_val, prop_preds_val)
+            self.dr_val = self.calculate_dr_outcomes(self.n_treat, Dval, yval, reg_preds_val, prop_preds_val)
 
         self.ate_val = np.mean(self.dr_val, axis=0)
 
@@ -128,15 +133,17 @@ class DRtester:
             raise Exception("Nuisance models fit fit (cv) in validation sample but Ztrain is specified")
 
         if Ztrain is not None:
-            self.cate_preds_train = self.fit_cate_cv(reg_cate, Ztrain, self.Dtrain, self.dr_train)
+            self.cate_preds_train = self.fit_cate_cv(self.n_splits, reg_cate, Ztrain, self.Dtrain, self.dr_train)
             self.cate_preds_val = self.fit_cate_train(reg_cate, Ztrain, Zval)
         else:
-            self.cate_preds_val = self.fit_cate_cv(reg_cate, Zval, self.Dval, self.dr_val)
+            self.cate_preds_val = self.fit_cate_cv(self.n_splits, reg_cate, Zval, self.Dval, self.dr_val)
 
         return self
 
+    def evaluate_cal(self, n_groups=4):
 
-    def evaluate_cal(self, n_groups = 4):
+        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (self.dr_val is None):
+            raise Exception("Must fit CATE before evaluating")
 
         if self.dr_train is None:
             raise Exception("Must fit nuisance/CATE models on training sample data to use calibration test")
@@ -194,6 +201,9 @@ class DRtester:
         return fig
 
     def evaluate_blp(self):
+        if (self.cate_preds_val is None) or (self.dr_val is None):
+            raise Exception("Must fit CATE before evaluating")
+
         if self.n_treat == 1:  # binary treatment
             reg = OLS(self.dr_val, add_constant(self.cate_preds_val)).fit()
             params = [reg.params[1]]
@@ -209,18 +219,19 @@ class DRtester:
                 errs.append(reg.bse[1])
                 pvals.append(reg.pvalues[1])
 
-        self.blp_res = pd.DataFrame({'blp_est': params, 'blp_se': errs, 'blp_pval': pvals}, index = self.tmts[1:])
-        self.blp_res =  self.blp_res.round({'blp_est': 3, 'blp_se':3, 'blp_pval': 3})
-        # ['blp_pval'] = round(self.blp_res['blp_pval'], 3)
+        self.blp_res = pd.DataFrame(
+            {'treatment': self.tmts[1:], 'blp_est': params, 'blp_se': errs, 'blp_pval': pvals}
+        ).round(3)
 
         return self
 
-    def evaluate_all(self, n_groups = 4):
+    def evaluate_all(self, n_groups=4):
 
         self.evaluate_blp()
         self.evaluate_cal(n_groups)
+        self.evaluate_qini()
 
-        self.df_res = self.blp_res
+        self.df_res = self.blp_res.merge(self.qini_res, on='treatment')
         self.df_res['cal_r_squared'] = np.around(self.cal_r_squared, 3)
 
         return self
@@ -253,12 +264,10 @@ class DRtester:
         cv = StratifiedKFold(n_splits=self.n_splits, shuffle=shuffle, random_state=random_state)
         splits = list(cv.split(X, D))
 
-
         if self.n_treat == 1:
             prop_preds = cross_val_predict(self.reg_t, X, D, cv=splits)
         else:
             prop_preds = cross_val_predict(self.reg_t, X, D, cv=splits, method='predict_proba')
-
 
         # Predict outcomes
         # T-learner logic
@@ -274,15 +283,16 @@ class DRtester:
         return reg_preds, prop_preds
 
     # Calculates DR outcomes
+    @staticmethod
     def calculate_dr_outcomes(
-        self,
+        n_treat,
         D: np.array,
         y: np.array,
         reg_preds,
         prop_preds
     ) -> np.array:
 
-        if self.n_treat == 1:  # if treatment is binary
+        if n_treat == 1:  # if treatment is binary
             reg_preds_chosen = np.sum(reg_preds * np.column_stack((D, 1 - D)), axis=1)
 
             # Calculate doubly-robust outcome
@@ -307,7 +317,8 @@ class DRtester:
 
         return dr
 
-    def cate_fit_predict(self, reg_cate, train, test, dr):
+    @staticmethod
+    def cate_fit_predict(n_treat, reg_cate, train, test, dr):
 
         if np.ndim(test) == 1:
             test = test.reshape(-1, 1)
@@ -315,12 +326,12 @@ class DRtester:
         if np.ndim(train) == 1:
             train = train.reshape(-1, 1)
 
-        if self.n_treat == 1:
+        if n_treat == 1:
             reg_cate_fitted = reg_cate.fit(train, dr)
             cate_preds = reg_cate_fitted.predict(test)
         else:
             cate_preds = []
-            for k in range(self.n_treat):  # fit a separate cate model for each treatment status?
+            for k in range(n_treat):  # fit a separate cate model for each treatment status?
                 reg_cate_fitted = reg_cate.fit(train, dr[:, k])
                 cate_preds.append(reg_cate_fitted.predict(test))
 
@@ -330,11 +341,12 @@ class DRtester:
 
     # Fits CATE in training, predicts in validation
     def fit_cate_train(self, reg_cate, Ztrain, Zval):
-        return self.cate_fit_predict(reg_cate, Ztrain, Zval, self.dr_train)
+        return self.cate_fit_predict(self.n_treat, reg_cate, Ztrain, Zval, self.dr_train)
 
     # CV prediction of CATEs
-    def fit_cate_cv(self, reg_cate, Z, D, dr, shuffle=True, random_state=712):
-        cv = StratifiedKFold(n_splits=self.n_splits, shuffle=shuffle, random_state=random_state)
+    @staticmethod
+    def fit_cate_cv(n_splits, reg_cate, Z, D, dr, shuffle=True, random_state=712):
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
         splits = list(cv.split(Z, D))
 
         if np.ndim(Z) == 1:
@@ -349,3 +361,60 @@ class DRtester:
             cate_preds[:, k] = cross_val_predict(reg_cate, Z, dr[:, k], cv = splits)
 
         return cate_preds
+
+    @staticmethod
+    def calc_qini_coeff(cate_preds_train, cate_preds_val, dr_val, percentiles):
+        qs = np.percentile(cate_preds_train, percentiles)
+        toc, toc_std, group_prob = np.zeros(len(qs)), np.zeros(len(qs)), np.zeros(len(qs))
+        toc_psi = np.zeros((len(qs), dr_val.shape[0]))
+        n = len(dr_val)
+        ate = np.mean(dr_val)
+        for it in range(len(qs)):
+            inds = (qs[it] <= cate_preds_val)  # group with larger CATE prediction than the q-th quantile
+            group_prob = np.sum(inds) / n  # fraction of population in this group
+            toc[it] = group_prob * (
+                    np.mean(dr_val[inds]) - ate)  # tau(q) = q * E[Y(1) - Y(0) | tau(X) >= q[it]] - E[Y(1) - Y(0)]
+            toc_psi[it, :] = (dr_val - ate) * (inds - group_prob) - toc[it]  # influence function for the tau(q)
+            toc_std[it] = np.sqrt(np.mean(toc_psi[it] ** 2) / n)  # standard error of tau(q)
+
+        qini_psi = np.sum(toc_psi[:-1] * np.diff(percentiles).reshape(-1, 1) / 100, 0)
+        qini = np.sum(toc[:-1] * np.diff(percentiles) / 100)
+        qini_stderr = np.sqrt(np.mean(qini_psi ** 2) / n)
+
+        return qini, qini_stderr
+
+    def evaluate_qini(self, percentiles=np.linspace(5, 95, 50)):
+
+        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (self.dr_val is None):
+            raise Exception("Must fit CATE before evaluating")
+
+        if self.n_treat == 1:
+            qini, qini_err = self.calc_qini_coeff(
+                self.cate_preds_train,
+                self.cate_preds_val,
+                self.dr_val,
+                percentiles
+            )
+            qinis = [qini]
+            errs = [qini_err]
+        else:
+            qinis = []
+            errs = []
+            for k in range(self.n_treat):
+                qini, qini_err = self.calc_qini_coeff(
+                    self.cate_preds_train[:, k],
+                    self.cate_preds_val[:, k],
+                    self.dr_val[:, k],
+                    percentiles
+                )
+
+                qinis.append(qini)
+                errs.append(qini_err)
+
+        pvals = [st.norm.sf(abs(q / e)) for q, e in zip(qinis, errs)]
+
+        self.qini_res = pd.DataFrame(
+            {'treatment': self.tmts[1:], 'qini_coeff': qinis, 'qini_se': errs, 'qini_pval': pvals},
+        ).round(3)
+
+        return self
