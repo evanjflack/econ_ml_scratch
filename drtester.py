@@ -53,7 +53,7 @@ class DRtester:
         self.cate_preds_val = None
         self.dr_val = None
 
-    # Fits nusisance and CATE
+    # Fits nusisance
     def fit_nuisance(
         self,
         Xval,
@@ -138,15 +138,15 @@ class DRtester:
         else:
             self.cate_preds_val = self.fit_cate_cv(self.n_splits, reg_cate, Zval, self.Dval, self.dr_val)
 
-        return self
-
-    def evaluate_cal(self, n_groups=4):
-
-        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (self.dr_val is None):
-            raise Exception("Must fit CATE before evaluating")
-
+    def evaluate_cal(self, reg_cate=None, Zval=None, Ztrain=None, n_groups=4):
         if self.dr_train is None:
             raise Exception("Must fit nuisance/CATE models on training sample data to use calibration test")
+
+        # if CATE is given explicitly or has not been fitted at all previously, fit it now
+        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
+            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
+                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+            self.fit_cate(reg_cate, Zval, Ztrain)
 
         self.cal_r_squared = np.zeros(self.n_treat)
         self.df_plot = pd.DataFrame()
@@ -200,9 +200,15 @@ class DRtester:
 
         return fig
 
-    def evaluate_blp(self):
-        if (self.cate_preds_val is None) or (self.dr_val is None):
-            raise Exception("Must fit CATE before evaluating")
+    def evaluate_blp(self, reg_cate=None, Zval=None, Ztrain=None):
+        if self.dr_val is None:
+            raise Exception("Must fit nuisances before evaluating")
+
+        # if CATE is given explicitly or has not been fitted at all previously, fit it now
+        if (self.cate_preds_val is None) or (reg_cate is not None):
+            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
+                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+            self.fit_cate(reg_cate, Zval, Ztrain)
 
         if self.n_treat == 1:  # binary treatment
             reg = OLS(self.dr_val, add_constant(self.cate_preds_val)).fit()
@@ -225,10 +231,16 @@ class DRtester:
 
         return self
 
-    def evaluate_all(self, n_groups=4):
+    def evaluate_all(self, reg_cate=None, Zval=None, Ztrain=None, n_groups=4):
+
+        # if CATE is given explicitly or has not been fitted at all previously, fit it now
+        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
+            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
+                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+            self.fit_cate(reg_cate, Zval, Ztrain)
 
         self.evaluate_blp()
-        self.evaluate_cal(n_groups)
+        self.evaluate_cal(n_groups=n_groups)
         self.evaluate_qini()
 
         self.df_res = self.blp_res.merge(self.qini_res, on='treatment')
@@ -383,10 +395,15 @@ class DRtester:
 
         return qini, qini_stderr
 
-    def evaluate_qini(self, percentiles=np.linspace(5, 95, 50)):
+    def evaluate_qini(self, reg_cate=None, Zval=None, Ztrain=None, percentiles=np.linspace(5, 95, 50)):
+        if self.dr_val is None:
+            raise Exception("Must fit nuisances before evaluating")
 
-        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (self.dr_val is None):
-            raise Exception("Must fit CATE before evaluating")
+        # if CATE is given explicitly or has not been fitted at all previously, fit it now
+        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
+            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
+                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+            self.fit_cate(reg_cate, Zval, Ztrain)
 
         if self.n_treat == 1:
             qini, qini_err = self.calc_qini_coeff(

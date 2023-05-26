@@ -78,7 +78,8 @@ class TestDRTester(unittest.TestCase):
 
         Ztrain = Xval[:, 1]
         Zval = Xtrain[:, 1]
-        my_dr_tester = my_dr_tester.fit_cate(reg_cate, Ztrain, Zval)
+
+        my_dr_tester.fit_cate(reg_cate, Ztrain, Zval)
 
         my_dr_tester = my_dr_tester.evaluate_all()
 
