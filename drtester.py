@@ -159,6 +159,36 @@ class DRtester:
             self.cate_preds_val = self.fit_cate_cv(self.n_splits, reg_cate, Zval, self.Dval, self.dr_val)
 
     def evaluate_cal(self, reg_cate=None, Zval=None, Ztrain=None, n_groups=4):
+
+        """
+        Implements calibration test as in Dwivedi et al. (2020).
+
+
+        Parameters
+        ----------
+        reg_cate: estimator
+            CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
+            already have been implemented
+        Zval: n_cal x k array
+            Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
+            implemented
+        Ztrain: n_train x k array
+            Training sample features for CATE model. If not specified, then `fit cate' method must already have been
+            implemented (with Ztrain specified)
+        n_groups: integer (default = 4)
+            Number of quantile-based groups used to calculate calibration score
+
+        Returns
+        -------
+        self
+
+
+        References
+        ----------
+        R. Dwivedi et al.
+        Stable Discovery of Interpretable Subgroups via Calibration in Causal Studies
+        International Statistical Review (2020), 88, S1, S135–S178 doi:10.1111/insr.12427
+        """
         if self.dr_train is None:
             raise Exception("Must fit nuisance/CATE models on training sample data to use calibration test")
 
@@ -206,6 +236,20 @@ class DRtester:
         return self
 
     def plot_cal(self, tmt):
+
+        """
+        Plots group average treatment effects (GATEs) and predicted GATEs by quantile-based group in validation sample.
+
+        Parameters
+        ----------
+        tmt: integer
+            Treatment level to plot
+
+        Returns
+        -------
+        fig: matplotlib
+            Plot with predicted GATE onx-axis, GATE (and 95% CI) on y-axis
+        """
         df = self.df_plot
         df = df[df.tmt == tmt].copy()
         rsq = round(self.cal_r_squared[np.where(self.tmts == tmt)[0][0] - 1], 3)
@@ -221,6 +265,36 @@ class DRtester:
         return fig
 
     def evaluate_blp(self, reg_cate=None, Zval=None, Ztrain=None):
+        """
+        Implements the best linear predictor (BLP) test as in Chernozhukov et al. (2022), where DR outcomes are
+        regressed on CATE predictions. `fit_nusiance' method must already be implemented.
+
+        Parameters
+        ----------
+        reg_cate: estimator
+            CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
+            already have been implemented
+        Zval: n_cal x k array
+            Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
+            implemented
+        Ztrain: n_train x k array
+            Training sample features for CATE model. If specified, then CATE is fitted on training sample and applied
+            to Zval. If specified, then Xtrain, Dtrain, Ytrain must have been specified in `fit_nuisance' method (and
+            vice-versa)
+
+        Returns
+        -------
+        self
+
+
+        References
+        ----------
+        V. Chernozhukov et al.
+        Generic Machine Learning Inference on Heterogeneous Treatment Effects in Randomized Experiments
+        arXiv preprint arXiv:1712.04802, 2022.
+        `<https://arxiv.org/abs/1712.04802>`
+        """
+
         if self.dr_val is None:
             raise Exception("Must fit nuisances before evaluating")
 
@@ -253,6 +327,28 @@ class DRtester:
 
     def evaluate_all(self, reg_cate=None, Zval=None, Ztrain=None, n_groups=4):
 
+        """
+        Implements the best linear prediction (`evaluate_blp'), calibration (`evaluate_cal') and qini curve
+        (`evaluate_qini') validation tests.
+
+        Parameters
+        ----------
+        reg_cate: estimator
+            CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
+            already have been implemented
+        Zval: n_cal x k array
+            Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
+            implemented
+        Ztrain: n_train x k array
+            Training sample features for CATE model. If not specified, then `fit_cate' method must already have been
+            implemented
+        reg
+
+        Returns
+        -------
+        self
+        """
+
         # if CATE is given explicitly or has not been fitted at all previously, fit it now
         if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
             if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
@@ -270,6 +366,27 @@ class DRtester:
 
     # Fits nuisance in train, predicts in validation
     def fit_nuisance_train(self, Xtrain, Dtrain, ytrain, Xval):
+
+        """
+        Fits nuisance models in training sample and applies to validation sample.
+
+        Parameters
+        ----------
+        Xtrain: n_train x k array
+            Training sample features used to predict both treatment status and outcomes
+        Dtrain: array of length n_train
+            Training sample treatment assignments. Should have integr values with the lowest-value corresponding to the
+            control treatment. It is recommended to have the control take value 0 and all other treatments be integers
+            starting at 1
+        ytrain: array of length n_train
+            Outcomes for training sample
+        Xval: n_train x k array
+            Validation sample features used to predict both treatment status and outcomes
+
+        Returns
+        -------
+        self
+        """
 
         # Fit propensity in treatment
         reg_t_fitted = self.reg_t.fit(Xtrain, Dtrain)
