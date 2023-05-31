@@ -126,6 +126,26 @@ class DRtester:
 
     def fit_cate(self, reg_cate, Zval, Ztrain = None):
 
+        """
+        Fits CATE model and generates predictions. If Ztrain is None, then the predictions are generated using k-folds
+        cross-validation on the validation set. If Ztrain is specified, then the CATE is fit on the training sample
+        (where the DR outcomes were generated using k-folds CV), and then applied to the validation sample.
+
+        Parameters
+        ----------
+        reg_cate: estimator
+            CATE model. Must be able to implement `fit' and `predict' methods
+        Zval: n_val x k array
+            Validation set features to be used to predict (and potentially fit) DR outcomes in CATE model
+        Ztrain n_train x k array
+            Training set features used to fit CATE model
+
+        Returns
+        -------
+        self
+
+        """
+
         if (Ztrain is None) and self.fit_on_train:
             raise Exception("Nuisance models fit on training sample but Ztrain not specified")
 
