@@ -108,17 +108,17 @@ class DRtester:
         if self.fit_on_train:
             # Get DR outcomes in training sample
             reg_preds_train, prop_preds_train = self.fit_nuisance_cv(Xtrain, Dtrain, ytrain)
-            self.dr_train = self.calculate_dr_outcomes(self.n_treat, Dtrain, ytrain, reg_preds_train, prop_preds_train)
+            self.dr_train = self.calculate_dr_outcomes(Dtrain, ytrain, reg_preds_train, prop_preds_train)
 
             # Get DR outcomes in validation sample
             reg_preds_val, prop_preds_val = self.fit_nuisance_train(Xtrain, Dtrain, ytrain, Xval)
-            self.dr_val = self.calculate_dr_outcomes(self.n_treat, Dval, yval, reg_preds_val, prop_preds_val)
+            self.dr_val = self.calculate_dr_outcomes(Dval, yval, reg_preds_val, prop_preds_val)
 
             self.Dtrain = Dtrain
 
         else:
             reg_preds_val, prop_preds_val = self.fit_nuisance_cv(Xval, Dval, yval)
-            self.dr_val = self.calculate_dr_outcomes(self.n_treat, Dval, yval, reg_preds_val, prop_preds_val)
+            self.dr_val = self.calculate_dr_outcomes(Dval, yval, reg_preds_val, prop_preds_val)
 
         self.ate_val = np.mean(self.dr_val, axis=0)
 
@@ -126,10 +126,10 @@ class DRtester:
 
     def fit_cate(self, reg_cate, Zval, Ztrain = None):
 
-        if (Ztrain is None) & self.fit_on_train:
+        if (Ztrain is None) and self.fit_on_train:
             raise Exception("Nuisance models fit on training sample but Ztrain not specified")
 
-        if (Ztrain is not None) & (self.fit_on_train == False):
+        if (Ztrain is not None) and (not self.fit_on_train):
             raise Exception("Nuisance models fit fit (cv) in validation sample but Ztrain is specified")
 
         if Ztrain is not None:
@@ -254,10 +254,7 @@ class DRtester:
         # Fit propensity in treatment
         reg_t_fitted = self.reg_t.fit(Xtrain, Dtrain)
         # Predict propensity scores
-        if self.n_treat == 1:
-            prop_preds = reg_t_fitted.predict(Xval)
-        else:
-            prop_preds = reg_t_fitted.predict_proba(Xval)
+        prop_preds = reg_t_fitted.predict_proba(Xval)
 
         # Possible treatments (need to allow more than 2)
         tmts = np.sort(np.unique(Dtrain))
@@ -276,10 +273,7 @@ class DRtester:
         cv = StratifiedKFold(n_splits=self.n_splits, shuffle=shuffle, random_state=random_state)
         splits = list(cv.split(X, D))
 
-        if self.n_treat == 1:
-            prop_preds = cross_val_predict(self.reg_t, X, D, cv=splits)
-        else:
-            prop_preds = cross_val_predict(self.reg_t, X, D, cv=splits, method='predict_proba')
+        prop_preds = cross_val_predict(self.reg_t, X, D, cv=splits, method='predict_proba')
 
         # Predict outcomes
         # T-learner logic
@@ -297,35 +291,25 @@ class DRtester:
     # Calculates DR outcomes
     @staticmethod
     def calculate_dr_outcomes(
-        n_treat,
         D: np.array,
         y: np.array,
         reg_preds,
         prop_preds
     ) -> np.array:
 
-        if n_treat == 1:  # if treatment is binary
-            reg_preds_chosen = np.sum(reg_preds * np.column_stack((D, 1 - D)), axis=1)
-
-            # Calculate doubly-robust outcome
-            dr = reg_preds[:, 1] - reg_preds[:, 0]
-            # Reiz representation, clip denominator at 0.01
-            reisz = (D - prop_preds) / np.clip(prop_preds * (1 - prop_preds), .01, np.inf)
-            dr += (y - reg_preds_chosen) * reisz
-        else:  # if treatment is categorical
-            # treat each treatment as a separate regression
-            # here, prop_preds should be a matrix
-            # with rows corresponding to units and columns corresponding to treatment statuses
-            dr_vec = []
-            d0_mask = np.where(D == 0, 1, 0)
-            y_dr_0 = reg_preds[:, 0] + (d0_mask / np.clip(prop_preds[:, 0], .01, np.inf)) * (y - reg_preds[:, 0])
-            for k in np.sort(np.unique(D)):  # pick a treatment status
-                if k > 0:  # make sure it is not control
-                    dk_mask = np.where(D == k, 1, 0)
-                    y_dr_k = reg_preds[:, k] + (dk_mask / np.clip(prop_preds[:, k], .01, np.inf)) * (y - reg_preds[:, k])
-                    dr_k = y_dr_k - y_dr_0  # this is an n x 1 vector
-                    dr_vec.append(dr_k)
-            dr = np.column_stack(dr_vec)  # this is an n x k matrix
+        # treat each treatment as a separate regression
+        # here, prop_preds should be a matrix
+        # with rows corresponding to units and columns corresponding to treatment statuses
+        dr_vec = []
+        d0_mask = np.where(D == 0, 1, 0)
+        y_dr_0 = reg_preds[:, 0] + (d0_mask / np.clip(prop_preds[:, 0], .01, np.inf)) * (y - reg_preds[:, 0])
+        for k in np.sort(np.unique(D)):  # pick a treatment status
+            if k > 0:  # make sure it is not control
+                dk_mask = np.where(D == k, 1, 0)
+                y_dr_k = reg_preds[:, k] + (dk_mask / np.clip(prop_preds[:, k], .01, np.inf)) * (y - reg_preds[:, k])
+                dr_k = y_dr_k - y_dr_0  # this is an n x 1 vector
+                dr_vec.append(dr_k)
+        dr = np.column_stack(dr_vec)  # this is an n x k matrix
 
         return dr
 
@@ -340,7 +324,7 @@ class DRtester:
 
         if n_treat == 1:
             reg_cate_fitted = reg_cate.fit(train, dr)
-            cate_preds = reg_cate_fitted.predict(test)
+            cate_preds = np.expand_dims(reg_cate_fitted.predict(test), axis=1)
         else:
             cate_preds = []
             for k in range(n_treat):  # fit a separate cate model for each treatment status?
@@ -386,7 +370,7 @@ class DRtester:
             group_prob = np.sum(inds) / n  # fraction of population in this group
             toc[it] = group_prob * (
                     np.mean(dr_val[inds]) - ate)  # tau(q) = q * E[Y(1) - Y(0) | tau(X) >= q[it]] - E[Y(1) - Y(0)]
-            toc_psi[it, :] = (dr_val - ate) * (inds - group_prob) - toc[it]  # influence function for the tau(q)
+            toc_psi[it, :] = np.squeeze((dr_val - ate) * (inds - group_prob) - toc[it])  # influence function for the tau(q)
             toc_std[it] = np.sqrt(np.mean(toc_psi[it] ** 2) / n)  # standard error of tau(q)
 
         qini_psi = np.sum(toc_psi[:-1] * np.diff(percentiles).reshape(-1, 1) / 100, 0)
