@@ -10,6 +10,49 @@ from drtester import DRtester
 
 class TestDRTester(unittest.TestCase):
 
+    def _get_data1(num_treatments=1):
+        np.random.seed(123)
+
+        N = 20000  # number of units
+        K = 5  # number of covariates
+
+        # Generate random Xs
+        X_mu = np.zeros(5)  # Means of Xs
+        # Random covariance matrix of Xs
+        X_sig = np.diag(np.random.rand(5))
+        X = st.multivariate_normal(X_mu, X_sig).rvs(N)
+
+        # Effect of Xs on outcome
+        X_beta = np.random.uniform(0, 5, K)
+        # Effect of treatment on outcomes
+        D_beta = np.arange(num_treatments + 1)
+        # Effect of treatment on outcome conditional on X1
+        DX1_beta = np.array([0] * num_treatments + [3])
+
+        # Generate treatments based on X and random noise
+        beta_treat = np.random.uniform(-1, 1, (num_treatments + 1, K))
+        D1 = np.zeros((N, num_treatments + 1))
+        for k in range(num_treatments + 1):
+            D1[:, k] = X @ beta_treat[k, :] + np.random.gumbel(0, 1, N)
+        D = np.array([np.where(D1[i, :] == np.max(D1[i, :]))[0][0] for i in range(N)])
+        D_dum = pd.get_dummies(D)
+
+        # Generate Y (based on X, D, and random noise)
+        Y_sig = 1  # Variance of random outcome noise
+        Y = X @ X_beta + (D_dum @ D_beta) + X[:, 1] * (D_dum @ DX1_beta) + np.random.normal(0, Y_sig, N)
+        Y = Y.to_numpy()
+
+        train_prop = .5
+        train_N = np.ceil(train_prop * N)
+        ind = np.array(range(N))
+        train_ind = np.random.choice(N, int(train_N), replace=False)
+        val_ind = ind[~np.isin(ind, train_ind)]
+
+        Xtrain, Dtrain, Ytrain = X[train_ind], D[train_ind], Y[train_ind]
+        Xval, Dval, Yval = X[val_ind], D[val_ind], Y[val_ind]
+
+        return Xtrain, Dtrain, Ytrain, Xval, Dval, Yval
+
     def _get_data(self, num_treatments=1):
         np.random.seed(123)
 
