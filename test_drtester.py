@@ -10,7 +10,8 @@ from drtester import DRtester
 
 class TestDRTester(unittest.TestCase):
 
-    def _get_data(self, num_treatments=1):
+    @staticmethod
+    def _get_data(num_treatments=1):
         np.random.seed(576)
 
         N = 20000  # number of units
