@@ -1,17 +1,18 @@
+from typing import Tuple
+
 import numpy as np
 import pandas as pd
 import scipy.stats as st
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from statsmodels.api import OLS
 from statsmodels.tools import add_constant
-from typing import Tuple
 
 
 class DRtester:
 
     """
     Validation tests for CATE models. Includes the best linear predictor (BLP) test as in Chernozhukov et al. (2022),
-    the calibration test in Dwivedi et al. (2020), and the qini curve test as in Radcliffe (2007).
+    the calibration test in Dwivedi et al. (2020), and the QINI coefficient as in Radcliffe (2007).
 
     Parameters
     ----------
@@ -30,7 +31,7 @@ class DRtester:
     References
     ----------
 
-        V. Chernozhukov et al.
+    V. Chernozhukov et al.
     Generic Machine Learning Inference on Heterogeneous Treatment Effects in Randomized Experiments
     arXiv preprint arXiv:1712.04802, 2022.
     `<https://arxiv.org/abs/1712.04802>`_
@@ -48,7 +49,7 @@ class DRtester:
         self,
         reg_outcome,
         reg_t,
-        n_splits:int=5
+        n_splits: int = 5
     ):
         self.reg_outcome = reg_outcome
         self.reg_t = reg_t
@@ -60,12 +61,12 @@ class DRtester:
 
     def fit_nuisance(
         self,
-        Xval:np.array,
-        Dval:np.array,
-        yval:np.array,
-        Xtrain:np.array = None,
-        Dtrain:np.array = None,
-        ytrain:np.array = None,
+        Xval: np.array,
+        Dval: np.array,
+        yval: np.array,
+        Xtrain: np.array = None,
+        Dtrain: np.array = None,
+        ytrain: np.array = None,
     ):
 
         """
@@ -77,19 +78,19 @@ class DRtester:
 
         Parameters
         ----------
-        Xval: (n_val x k) matrix or vector of length n
+        Xval: (n_val x n_treatment) matrix or vector of length n
             Features used in nuisance models for validation sample
         Dval: vector of length n_val
             Treatment assignment of validation sample. Control status must be minimum value. It is recommended to have
             the control status be equal to 0, and all other treatments integers starting at 1.
-        Yval: vector of length n_val
+        yval: vector of length n_val
             Outcomes for the validation sample
-        Xtrain: (n_train x k) matrix or vector of length n
+        Xtrain: (n_train x n_treatment) matrix or vector of length n
             Features used in nuisance models for training sample
         Dtrain: vector of length n_train
             Treatment assignment of training sample. Control status must be minimum value. It is recommended to have
             the control status be equal to 0, and all other treatments integers starting at 1.
-        Ytrain: vector of length n_train
+        ytrain: vector of length n_train
             Outcomes for the training sample
 
         Returns
@@ -128,7 +129,12 @@ class DRtester:
 
         return self
 
-    def fit_cate(self, reg_cate, Zval, Ztrain = None):
+    def fit_cate(
+        self,
+        reg_cate,
+        Zval: np.array,
+        Ztrain: np.array = None
+    ):
 
         """
         Fits CATE model and generates predictions. If Ztrain is None, then the predictions are generated using k-folds
@@ -139,9 +145,9 @@ class DRtester:
         ----------
         reg_cate: estimator
             CATE model. Must be able to implement `fit' and `predict' methods
-        Zval: n_val x k array
+        Zval: n_val x n_treatment array
             Validation set features to be used to predict (and potentially fit) DR outcomes in CATE model
-        Ztrain n_train x k array
+        Ztrain n_train x n_treatment array
             Training set features used to fit CATE model
 
         Returns
@@ -162,25 +168,30 @@ class DRtester:
         else:
             self.cate_preds_val = self.fit_cate_cv(reg_cate, Zval, self.Dval, self.dr_val, self.n_splits)
 
-    def evaluate_cal(self, reg_cate=None, Zval=None, Ztrain=None, n_groups=4):
+    def evaluate_cal(
+        self,
+        reg_cate=None,
+        Zval: np.array = None,
+        Ztrain: np.array = None,
+        n_groups: int = 4
+    ):
 
         """
         Implements calibration test as in Dwivedi et al. (2020).
-
 
         Parameters
         ----------
         reg_cate: estimator
             CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
             already have been implemented
-        Zval: n_cal x k array
+        Zval: n_cal x n_treatment array
             Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
             implemented
-        Ztrain: n_train x k array
+        Ztrain: n_train x n_treatment array
             Training sample features for CATE model. If not specified, then `fit cate' method must already have been
             implemented (with Ztrain specified)
-        n_groups: integer (default = 4)
-            Number of quantile-based groups used to calculate calibration score
+        n_groups: integer
+            Number of quantile-based groups used to calculate calibration score. Default is 4.
 
         Returns
         -------
@@ -239,7 +250,7 @@ class DRtester:
 
         return self
 
-    def plot_cal(self, tmt):
+    def plot_cal(self, tmt: int):
 
         """
         Plots group average treatment effects (GATEs) and predicted GATEs by quantile-based group in validation sample.
@@ -268,7 +279,12 @@ class DRtester:
 
         return fig
 
-    def evaluate_blp(self, reg_cate=None, Zval=None, Ztrain=None):
+    def evaluate_blp(
+        self,
+        reg_cate=None,
+        Zval: np.array = None,
+        Ztrain: np.array = None
+    ):
         """
         Implements the best linear predictor (BLP) test as in Chernozhukov et al. (2022), where DR outcomes are
         regressed on CATE predictions. `fit_nusiance' method must already be implemented.
@@ -278,10 +294,10 @@ class DRtester:
         reg_cate: estimator
             CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
             already have been implemented
-        Zval: n_cal x k array
+        Zval: n_cal x n_treatment array
             Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
             implemented
-        Ztrain: n_train x k array
+        Ztrain: n_train x n_treatment array
             Training sample features for CATE model. If specified, then CATE is fitted on training sample and applied
             to Zval. If specified, then Xtrain, Dtrain, Ytrain must have been specified in `fit_nuisance' method (and
             vice-versa)
@@ -329,10 +345,16 @@ class DRtester:
 
         return self
 
-    def evaluate_all(self, reg_cate=None, Zval=None, Ztrain=None, n_groups=4):
+    def evaluate_all(
+        self,
+        reg_cate=None,
+        Zval: np.array = None,
+        Ztrain: np.array = None,
+        n_groups: int = 4
+    ):
 
         """
-        Implements the best linear prediction (`evaluate_blp'), calibration (`evaluate_cal') and qini curve
+        Implements the best linear prediction (`evaluate_blp'), calibration (`evaluate_cal') and QINI coefficient
         (`evaluate_qini') methods.
 
         Parameters
@@ -340,13 +362,12 @@ class DRtester:
         reg_cate: estimator
             CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
             already have been implemented
-        Zval: n_cal x k array
+        Zval: n_cal x n_treatment array
             Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
             implemented
-        Ztrain: n_train x k array
+        Ztrain: n_train x n_treatment array
             Training sample features for CATE model. If not specified, then `fit_cate' method must already have been
             implemented
-        reg
 
         Returns
         -------
@@ -368,15 +389,20 @@ class DRtester:
 
         return self
 
-    # Fits nuisance in train, predicts in validation
-    def fit_nuisance_train(self, Xtrain, Dtrain, ytrain, Xval):
+    def fit_nuisance_train(
+        self,
+        Xtrain: np.array,
+        Dtrain: np.array,
+        ytrain: np.array,
+        Xval: np.array
+    ) -> Tuple[np.array, np.array]:
 
         """
         Fits nuisance models in training sample and applies to validation sample.
 
         Parameters
         ----------
-        Xtrain: n_train x k array
+        Xtrain: n_train x n_treatment array
             Training sample features used to predict both treatment status and outcomes
         Dtrain: array of length n_train
             Training sample treatment assignments. Should have integer values with the lowest-value corresponding to the
@@ -384,12 +410,13 @@ class DRtester:
             starting at 1
         ytrain: array of length n_train
             Outcomes for training sample
-        Xval: n_train x k array
+        Xval: n_train x n_treatment array
             Validation sample features used to predict both treatment status and outcomes
 
         Returns
         -------
-        self
+        2 n_val x n_treatment arrays corresponding to the predicted outcomes under treatment status and predicted
+        treatment probabilities, respectively. Both evaluated on validation set.
         """
 
         # Fit propensity in treatment
@@ -406,15 +433,20 @@ class DRtester:
 
         return reg_preds, prop_preds
 
-    # CV nuisance predictions
-    def fit_nuisance_cv(self, X:np.array, D: np.array, y:np.array, random_state:int=123):
+    def fit_nuisance_cv(
+        self,
+        X: np.array,
+        D: np.array,
+        y: np.array,
+        random_state: int = 123
+    ) -> Tuple[np.array, np.array]:
 
         """
         Generates nuisance function predictions using k-folds cross validation.
 
         Parameters
         ----------
-        X: n x k array
+        X: n x n_treatment array
             Features used to predict treatment/outcome
         D: array of length n
             Treatment assignments. Should have integer values with the lowest-value corresponding to the
@@ -423,7 +455,12 @@ class DRtester:
         y: array of length n
             Outcomes
         random_state: int
-            Integer of seed
+            Random seed
+
+        Returns
+        -------
+        2 n_val x n_treatment arrays corresponding to the predicted outcomes under treatment status and predicted
+        treatment probabilities, respectively. Both evaluated on validation set.
         """
 
         cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=random_state)
@@ -443,13 +480,12 @@ class DRtester:
 
         return reg_preds, prop_preds
 
-    # Calculates DR outcomes
     @staticmethod
     def calculate_dr_outcomes(
         D: np.array,
         y: np.array,
-        reg_preds,
-        prop_preds
+        reg_preds: np.array,
+        prop_preds: np.array
     ) -> np.array:
 
         """
@@ -468,7 +504,7 @@ class DRtester:
 
         Returns
         -------
-        self
+        Doubly robust outcome values
         """
 
         # treat each treatment as a separate regression
@@ -483,12 +519,18 @@ class DRtester:
                 y_dr_k = reg_preds[:, k] + (dk_mask / np.clip(prop_preds[:, k], .01, np.inf)) * (y - reg_preds[:, k])
                 dr_k = y_dr_k - y_dr_0  # this is an n x 1 vector
                 dr_vec.append(dr_k)
-        dr = np.column_stack(dr_vec)  # this is an n x k matrix
+        dr = np.column_stack(dr_vec)  # this is an n x n_treatment matrix
 
         return dr
 
         # Fits CATE in training, predicts in validation
-    def fit_cate_train(self, reg_cate, Ztrain: np.array, Zval: np.array) -> np.array:
+    def fit_cate_train(
+        self,
+        reg_cate,
+        Ztrain: np.array,
+        Zval: np.array
+    ) -> np.array:
+
         """
         Fit provided CATE estimator on training dataset and return predicted
         out-of-sample CATE values for validation set.
@@ -527,7 +569,15 @@ class DRtester:
 
     # CV prediction of CATEs
     @staticmethod
-    def fit_cate_cv(reg_cate, Z:np.array, D:np.array, dr:np.array, n_splits:int = 5, random_state:int = 123):
+    def fit_cate_cv(
+        reg_cate,
+        Z: np.array,
+        D: np.array,
+        dr: np.array,
+        n_splits: int = 5,
+        random_state: int = 123
+    ) -> np.array:
+
         """
         Generates CATE predictions using k-folds cross validation.
 
@@ -536,21 +586,21 @@ class DRtester:
 
         reg_cate: estimator
             CATE model. Must be able to implement `fit' and `predict' methods
-        Z: n x k array
+        Z: n x n_treatment array
             Features used to predict DR outcomes in CATE model
         D: array of length n
             Treatment assignments
         dr: n x n_treat array
             Doubly robust outcomes for each treatment
-        n_split: int
+        n_splits: int
             Number of folds to use for cross validation prediction
         random_state: int
             Seed value
 
         Returns
         -------
-        cate_preds: n x n_treat array
-         Predicted DR outcomes for each treatment
+        cate_preds: n x n_treatment array
+            Predicted DR outcomes for each treatment
         """
 
         cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
@@ -570,11 +620,12 @@ class DRtester:
 
     @staticmethod
     def calc_qini_coeff(
-            cate_preds_train: np.array,
-            cate_preds_val: np.array,
-            dr_val: np.array,
-            percentiles: np.array
+        cate_preds_train: np.array,
+        cate_preds_val: np.array,
+        dr_val: np.array,
+        percentiles: np.array
     ) -> Tuple[float, float]:
+
         """
         Helper function for QINI coefficient calculation. See documentation for "evaluate_qini" method
         for more details.
@@ -593,7 +644,7 @@ class DRtester:
 
         Returns
         -------
-        QINI coefficient and associated standard errors.
+        QINI coefficient and associated standard error.
         """
         qs = np.percentile(cate_preds_train, percentiles)
         toc, toc_std, group_prob = np.zeros(len(qs)), np.zeros(len(qs)), np.zeros(len(qs))
@@ -616,12 +667,13 @@ class DRtester:
         return qini, qini_stderr
 
     def evaluate_qini(
-            self,
-            reg_cate=None,
-            Zval: np.array = None,
-            Ztrain: np.array = None,
-            percentiles: np.array = np.linspace(5, 95, 50)
+        self,
+        reg_cate=None,
+        Zval: np.array = None,
+        Ztrain: np.array = None,
+        percentiles: np.array = np.linspace(5, 95, 50)
     ):
+
         """
         Calculates QINI coefficient for the given model as in Radcliffe (2007), where units are ordered by predicted
         CATE values and a running measure of the average treatment effect in each cohort is kept as we progress
@@ -634,10 +686,10 @@ class DRtester:
         reg_cate: estimator
             CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
             already have been implemented
-        Zval: n_cal x k array
+        Zval: n_cal x n_treatment array
             Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
             implemented
-        Ztrain: n_train x k array
+        Ztrain: n_train x n_treatment array
             Training sample features for CATE model. If specified, then CATE is fitted on training sample and applied
             to Zval. If specified, then Xtrain, Dtrain, Ytrain must have been specified in `fit_nuisance' method (and
             vice-versa)
@@ -651,8 +703,9 @@ class DRtester:
 
         References
         ----------
-        Radcliffe, N. (2007). Using control groups to target on predicted lift: Building and assessing uplift model.
-        Direct Marketing Analytics Journal, pages 14–21.
+        Radcliffe, N.
+        Using control groups to target on predicted lift: Building and assessing uplift model.
+        Direct Marketing Analytics Journal, pages 14–21. 2007.
         """
         if self.dr_val is None:
             raise Exception("Must fit nuisances before evaluating")
