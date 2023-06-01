@@ -4,6 +4,7 @@ import scipy.stats as st
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from statsmodels.api import OLS
 from statsmodels.tools import add_constant
+from typing import Tuple
 
 
 class DRtester:
@@ -450,31 +451,43 @@ class DRtester:
 
         return dr
 
-    @staticmethod
-    def cate_fit_predict(n_treat, reg_cate, train, test, dr):
+    # Fits CATE in training, predicts in validation
+    def fit_cate_train(self, reg_cate, Ztrain: np.array, Zval: np.array) -> np.array:
+        """
+        Fit provided CATE estimator on training dataset and return predicted
+        out-of-sample CATE values for validation set.
 
-        if np.ndim(test) == 1:
-            test = test.reshape(-1, 1)
+        Parameters
+        ----------
+        reg_cate: estimator
+            CATE model. Must be able to implement `fit' and `predict' methods.
+        Ztrain: n_train x n_treatment array
+            Training sample features for CATE model.
+        Zval: n_val x n_treatment array
+            Validation sample features for CATE model.
 
-        if np.ndim(train) == 1:
-            train = train.reshape(-1, 1)
+        Returns
+        -------
+        n_val x n_treatment array of predicted CATE values for validation set.
+        """
+        if np.ndim(Zval) == 1:
+            Zval = Zval.reshape(-1, 1)
 
-        if n_treat == 1:
-            reg_cate_fitted = reg_cate.fit(train, np.squeeze(dr))
-            cate_preds = np.expand_dims(reg_cate_fitted.predict(test), axis=1)
+        if np.ndim(Ztrain) == 1:
+            Ztrain = Ztrain.reshape(-1, 1)
+
+        if self.n_treat == 1:
+            reg_cate_fitted = reg_cate.fit(Ztrain, np.squeeze(self.dr_train))
+            cate_preds = np.expand_dims(reg_cate_fitted.predict(Zval), axis=1)
         else:
             cate_preds = []
-            for k in range(n_treat):  # fit a separate cate model for each treatment status?
-                reg_cate_fitted = reg_cate.fit(train, dr[:, k])
-                cate_preds.append(reg_cate_fitted.predict(test))
+            for k in range(self.n_treat):  # fit a separate cate model for each treatment status?
+                reg_cate_fitted = reg_cate.fit(Ztrain, self.dr_train[:, k])
+                cate_preds.append(reg_cate_fitted.predict(Zval))
 
             cate_preds = np.column_stack(cate_preds)
 
         return cate_preds
-
-    # Fits CATE in training, predicts in validation
-    def fit_cate_train(self, reg_cate, Ztrain, Zval):
-        return self.cate_fit_predict(self.n_treat, reg_cate, Ztrain, Zval, self.dr_train)
 
     # CV prediction of CATEs
     @staticmethod
@@ -496,7 +509,32 @@ class DRtester:
         return cate_preds
 
     @staticmethod
-    def calc_qini_coeff(cate_preds_train, cate_preds_val, dr_val, percentiles):
+    def calc_qini_coeff(
+            cate_preds_train: np.array,
+            cate_preds_val: np.array,
+            dr_val: np.array,
+            percentiles: np.array
+    ) -> Tuple[float, float]:
+        """
+        Helper function for QINI coefficient calculation. See documentation for "evaluate_qini" method
+        for more details.
+
+        Parameters
+        ----------
+        cate_preds_train: n_train x n_treatment array
+            Predicted CATE values for the training sample.
+        cate_preds_val: n_val x n_treatment array
+            Predicted CATE values for the validation sample.
+        dr_val: n_train x n_treatment array
+            Doubly robust outcome values for each treatment status. Each value is relative to control, e.g. for
+            treatment k the value is Y_DR(k) - Y_DR(0), where 0 signifies no treatment.
+        percentiles: one-dimensional array
+            Array of percentiles over which the QINI curve should be constructed. Defaults to 5%-95% in intervals of 5%.
+
+        Returns
+        -------
+        QINI coefficient and associated standard errors.
+        """
         qs = np.percentile(cate_preds_train, percentiles)
         toc, toc_std, group_prob = np.zeros(len(qs)), np.zeros(len(qs)), np.zeros(len(qs))
         toc_psi = np.zeros((len(qs), dr_val.shape[0]))
@@ -516,7 +554,45 @@ class DRtester:
 
         return qini, qini_stderr
 
-    def evaluate_qini(self, reg_cate=None, Zval=None, Ztrain=None, percentiles=np.linspace(5, 95, 50)):
+    def evaluate_qini(
+            self,
+            reg_cate=None,
+            Zval: np.array = None,
+            Ztrain: np.array = None,
+            percentiles: np.array = np.linspace(5, 95, 50)
+    ):
+        """
+        Calculates QINI coefficient for the given model as in Radcliffe (2007), where units are ordered by predicted
+        CATE values and a running measure of the average treatment effect in each cohort is kept as we progress
+        through ranks. The QINI coefficient is then the area under the resulting curve, with a value of 0 interpreted
+        as corresponding to a model with randomly assigned CATE coefficients. All calculations are performed on
+        validation dataset results, using the training set as input.
+
+        Parameters
+        ----------
+        reg_cate: estimator
+            CATE model. Must be able to implement `fit' and `predict' methods. If not specified, then fit_cate() must
+            already have been implemented
+        Zval: n_cal x k array
+            Validation sample features for CATE model. If not specified, then `fit_cate' method must already have been
+            implemented
+        Ztrain: n_train x k array
+            Training sample features for CATE model. If specified, then CATE is fitted on training sample and applied
+            to Zval. If specified, then Xtrain, Dtrain, Ytrain must have been specified in `fit_nuisance' method (and
+            vice-versa)
+        percentiles: one-dimensional array
+            Array of percentiles over which the QINI curve should be constructed. Defaults to 5%-95% in intervals of 5%.
+
+        Returns
+        -------
+        self, with added dataframe qini_res showing the results of the QINI fit
+
+
+        References
+        ----------
+        Radcliffe, N. (2007). Using control groups to target on predicted lift: Building and assessing uplift model.
+        Direct Marketing Analytics Journal, pages 14–21.
+        """
         if self.dr_val is None:
             raise Exception("Must fit nuisances before evaluating")
 
