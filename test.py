@@ -4,7 +4,6 @@ import scipy.stats as st
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from statsmodels.api import OLS
 from statsmodels.tools import add_constant
-from typing import Tuple
 
 
 class DRtester:
