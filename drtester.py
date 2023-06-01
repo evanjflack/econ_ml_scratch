@@ -460,7 +460,7 @@ class DRtester:
             train = train.reshape(-1, 1)
 
         if n_treat == 1:
-            reg_cate_fitted = reg_cate.fit(train, dr)
+            reg_cate_fitted = reg_cate.fit(train, np.squeeze(dr))
             cate_preds = np.expand_dims(reg_cate_fitted.predict(test), axis=1)
         else:
             cate_preds = []
