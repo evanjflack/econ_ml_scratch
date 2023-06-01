@@ -95,7 +95,11 @@ class DRtester:
 
         Returns
         ------
-        self
+        self, with added attributes for the validation treatments (Dval), treatment values (tmts),
+        number of treatments (n_treat), boolean flag for whether training data is provided (fit_on_train),
+        doubly robust outcome values for the validation set (dr_val), and the DR ATE value (ate_val).
+        If training data is provided, also adds attributes for the doubly robust outcomes for the training
+        set (dr_train) and the training treatments (Dtrain)
 
         """
 
@@ -125,7 +129,7 @@ class DRtester:
             reg_preds_val, prop_preds_val = self.fit_nuisance_cv(Xval, Dval, yval)
             self.dr_val = self.calculate_dr_outcomes(Dval, yval, reg_preds_val, prop_preds_val)
 
-        self.ate_val = np.mean(self.dr_val, axis=0)
+        self.ate_val = self.dr_val.mean(axis=0)
 
         return self
 
@@ -152,7 +156,8 @@ class DRtester:
 
         Returns
         -------
-        self
+        None, but adds attribute cate_preds_val for predicted CATE values on the validation set and, if training
+        data is provided, attribute cate_preds_train for predicted CATE values on the training set
 
         """
 
@@ -195,7 +200,8 @@ class DRtester:
 
         Returns
         -------
-        self
+        self, with added attribute cal_r_squared showing the R^2 value of the calibration test and dataframe df_plot
+        containing relevant results to plot calibration test gates
 
 
         References
@@ -304,7 +310,7 @@ class DRtester:
 
         Returns
         -------
-        self
+        self, with added dataframe blp_res showing the results of the BLP test
 
 
         References
@@ -371,7 +377,7 @@ class DRtester:
 
         Returns
         -------
-        self
+        self, with added dataframe df_res summarizing the results of all tests
         """
 
         # if CATE is given explicitly or has not been fitted at all previously, fit it now
@@ -703,9 +709,9 @@ class DRtester:
 
         References
         ----------
-        Radcliffe, N.
+        N. Radcliffe
         Using control groups to target on predicted lift: Building and assessing uplift model.
-        Direct Marketing Analytics Journal, pages 14–21. 2007.
+        Direct Marketing Analytics Journal (2007), pages 14–21.
         """
         if self.dr_val is None:
             raise Exception("Must fit nuisances before evaluating")
