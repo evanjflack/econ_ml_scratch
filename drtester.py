@@ -165,7 +165,7 @@ class DRtester:
             raise Exception("Nuisance models fit on training sample but Ztrain not specified")
 
         if (Ztrain is not None) and (not self.fit_on_train):
-            raise Exception("Nuisance models fit fit (cv) in validation sample but Ztrain is specified")
+            raise Exception("Nuisance models cross-fit on validation sample but Ztrain is specified")
 
         if Ztrain is not None:
             self.cate_preds_train = self.fit_cate_cv(reg_cate, Ztrain, self.Dtrain, self.dr_train, self.n_splits)
@@ -211,12 +211,12 @@ class DRtester:
         International Statistical Review (2020), 88, S1, S135–S178 doi:10.1111/insr.12427
         """
         if self.dr_train is None:
-            raise Exception("Must fit nuisance/CATE models on training sample data to use calibration test")
+            raise Exception("Must fit nuisance models on training sample data to use calibration test")
 
         # if CATE is given explicitly or has not been fitted at all previously, fit it now
-        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
-            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
-                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+        if (self.cate_preds_train is None) or (self.cate_preds_val is None) or (reg_cate is not None):
+            if (Zval is None) or (Ztrain is None) or (reg_cate is None):
+                raise Exception('CATE not fitted on training data - must provide CATE model and both Zval, Ztrain')
             self.fit_cate(reg_cate, Zval, Ztrain)
 
         self.cal_r_squared = np.zeros(self.n_treat)
@@ -271,17 +271,22 @@ class DRtester:
         fig: matplotlib
             Plot with predicted GATE onx-axis, GATE (and 95% CI) on y-axis
         """
+        if tmt == 0:
+            raise Exception('Plotting only supported for treated units (not controls)')
+
         df = self.df_plot
         df = df[df.tmt == tmt].copy()
         rsq = round(self.cal_r_squared[np.where(self.tmts == tmt)[0][0] - 1], 3)
         df['95_err'] = 1.96 * df['se_gate']
-        fig = df.plot(kind='scatter',
+        fig = df.plot(
+            kind='scatter',
             x='g_cate',
             y='gate',
             yerr='95_err',
             xlabel = 'Group Mean CATE',
             ylabel = 'GATE',
-            title=f"Treatment = {tmt}, Calibration R^2 = {rsq}")
+            title=f"Treatment = {tmt}, Calibration R^2 = {rsq}"
+        ).get_figure()
 
         return fig
 
@@ -382,8 +387,8 @@ class DRtester:
 
         # if CATE is given explicitly or has not been fitted at all previously, fit it now
         if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
-            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
-                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+            if (Zval is None) or (reg_cate is None) or (Ztrain is None):
+                raise Exception('CATE not fitted on training data - must provide CATE model and both Zval, Ztrain')
             self.fit_cate(reg_cate, Zval, Ztrain)
 
         self.evaluate_blp()
@@ -717,9 +722,9 @@ class DRtester:
             raise Exception("Must fit nuisances before evaluating")
 
         # if CATE is given explicitly or has not been fitted at all previously, fit it now
-        if (self.cate_preds_val is None) or (self.cate_preds_train is None) or (reg_cate is not None):
-            if (Zval is None) or (reg_cate is None):  # need at least Zval and a CATE estimator to fit
-                raise Exception('CATE not yet fitted - must provide Zval and CATE estimator')
+        if (self.cate_preds_train is None) or (self.cate_preds_val is None) or (reg_cate is not None):
+            if (Zval is None) or (Ztrain is None) or (reg_cate is None):
+                raise Exception('CATE not fitted on training data - must provide CATE model and both Zval, Ztrain')
             self.fit_cate(reg_cate, Zval, Ztrain)
 
         if self.n_treat == 1:
